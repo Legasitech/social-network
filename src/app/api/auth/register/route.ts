@@ -55,10 +55,13 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ user }, { status: 201 });
   } catch (err) {
-    if (err instanceof z.ZodError) {
-      return NextResponse.json({ error: err.errors[0].message }, { status: 400 });
-    }
-    console.error("Register error:", err);
-    return NextResponse.json({ error: "Ошибка сервера" }, { status: 500 });
-  }
+  console.error("Register/Login error:", err);
+  return NextResponse.json(
+    {
+      error: "Ошибка сервера",
+      details: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    },
+    { status: 500 }
+  );
 }
