@@ -55,12 +55,11 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ user }, { status: 201 });
   } catch (err) {
-  console.error("Register/Login error:", err);
+  console.error("Register error:", err);
   return NextResponse.json(
     {
       error: "Ошибка сервера",
       details: err instanceof Error ? err.message : String(err),
-      stack: err instanceof Error ? err.stack : undefined,
     },
     { status: 500 }
   );
