@@ -1,12 +1,13 @@
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { redirect } from "next/navigation";
 import Link from "next/link";
-import { formatRelativeTime } from "@/lib/utils";
 import { MessageCircle } from "lucide-react";
+import { formatRelativeTime } from "@/lib/utils";
 
 export default async function MessagesPage() {
   const user = await getSession();
-  if (!user) return null;
+  if (!user) redirect("/login");
 
   const conversations = await prisma.conversation.findMany({
     where: {
@@ -35,7 +36,13 @@ export default async function MessagesPage() {
       messages: {
         take: 1,
         orderBy: { createdAt: "desc" },
-        select: { content: true, createdAt: true, senderId: true, isRead: true },
+        select: {
+          content: true,
+          imageUrl: true,
+          createdAt: true,
+          senderId: true,
+          isRead: true,
+        },
       },
     },
   });
@@ -43,7 +50,7 @@ export default async function MessagesPage() {
   return (
     <div className="max-w-[720px] mx-auto">
       <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] overflow-hidden">
-        <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
+        <div className="px-5 py-4 border-b border-[var(--border)]">
           <h1 className="text-lg font-semibold">Сообщения</h1>
         </div>
 
@@ -62,6 +69,14 @@ export default async function MessagesPage() {
             {conversations.map((conv) => {
               const other = conv.user1Id === user.id ? conv.user2 : conv.user1;
               const lastMsg = conv.messages[0];
+              const unread =
+                lastMsg && lastMsg.senderId !== user.id && !lastMsg.isRead;
+
+              let preview = "Нет сообщений";
+              if (lastMsg) {
+                if (lastMsg.imageUrl) preview = "📷 Фото";
+                else if (lastMsg.content) preview = lastMsg.content;
+              }
 
               return (
                 <Link
@@ -82,28 +97,35 @@ export default async function MessagesPage() {
                       </div>
                     )}
                     {other.isOnline && (
-                      <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-[var(--success)] border-2 border-[var(--card)] rounded-full" />
+                      <span className="absolute bottom-0 right-0 w-3 h-3 bg-[var(--success)] border-2 border-[var(--card)] rounded-full" />
                     )}
                   </div>
-
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-semibold truncate text-[15px]">
+                      <span className="font-medium text-[15px] truncate">
                         {other.displayName}
                       </span>
                       {lastMsg && (
-                        <span className="text-xs text-[var(--muted-dark)] shrink-0">
+                        <span className="text-xs text-[var(--muted)] shrink-0">
                           {formatRelativeTime(lastMsg.createdAt)}
                         </span>
                       )}
                     </div>
-                    <p className="text-sm text-[var(--muted)] truncate mt-0.5">
-                      {lastMsg
-                        ? lastMsg.senderId === user.id
-                          ? `Вы: ${lastMsg.content || "Стикер"}`
-                          : lastMsg.content || "Стикер"
-                        : "Нет сообщений"}
-                    </p>
+                    <div className="flex items-center justify-between gap-2 mt-0.5">
+                      <p
+                        className={`text-sm truncate ${
+                          unread
+                            ? "text-[var(--foreground)] font-medium"
+                            : "text-[var(--muted)]"
+                        }`}
+                      >
+                        {lastMsg?.senderId === user.id ? "Вы: " : ""}
+                        {preview}
+                      </p>
+                      {unread && (
+                        <span className="w-2 h-2 rounded-full bg-[var(--primary)] shrink-0" />
+                      )}
+                    </div>
                   </div>
                 </Link>
               );

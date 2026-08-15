@@ -7,7 +7,7 @@ const sendSchema = z.object({
   conversationId: z.string().optional(),
   recipientId: z.string().optional(),
   content: z.string().max(4000).optional().nullable(),
-  imageUrl: z.string().optional().nullable(),
+  imageUrl: z.string().max(1000).optional().nullable(),
   stickerId: z.string().optional().nullable(),
 });
 
@@ -31,23 +31,23 @@ export async function POST(req: NextRequest) {
       if (data.recipientId === user.id) {
         return NextResponse.json({ error: "Нельзя писать себе" }, { status: 400 });
       }
-
       const [user1Id, user2Id] =
         user.id < data.recipientId
           ? [user.id, data.recipientId]
           : [data.recipientId, user.id];
 
-      let conv = await prisma.conversation.findUnique({
+      const existing = await prisma.conversation.findUnique({
         where: { user1Id_user2Id: { user1Id, user2Id } },
+        select: { id: true },
       });
-
-      if (!conv) {
-        conv = await prisma.conversation.create({
-          data: { user1Id, user2Id },
-        });
-      }
-
-      conversationId = conv.id;
+      conversationId = existing
+        ? existing.id
+        : (
+            await prisma.conversation.create({
+              data: { user1Id, user2Id },
+              select: { id: true },
+            })
+          ).id;
     }
 
     if (!conversationId) {
@@ -57,61 +57,69 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const conv = await prisma.conversation.findUnique({
-      where: { id: conversationId },
+    // Lightweight access check
+    const conv = await prisma.conversation.findFirst({
+      where: {
+        id: conversationId,
+        OR: [{ user1Id: user.id }, { user2Id: user.id }],
+      },
+      select: { id: true, user1Id: true, user2Id: true },
     });
-
-    if (!conv || (conv.user1Id !== user.id && conv.user2Id !== user.id)) {
+    if (!conv) {
       return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
     }
 
-    const message = await prisma.message.create({
-      data: {
-        conversationId,
-        senderId: user.id,
-        content: data.content?.trim() || null,
-        imageUrl: data.imageUrl || null,
-        stickerId: data.stickerId || null,
-      },
-      include: {
-        sender: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            avatarUrl: true,
-          },
+    const [message] = await prisma.$transaction([
+      prisma.message.create({
+        data: {
+          conversationId,
+          senderId: user.id,
+          content: data.content?.trim() || null,
+          imageUrl: data.imageUrl || null,
+          stickerId: data.stickerId || null,
         },
-        sticker: true,
-      },
-    });
+        select: {
+          id: true,
+          content: true,
+          imageUrl: true,
+          stickerId: true,
+          senderId: true,
+          conversationId: true,
+          createdAt: true,
+        },
+      }),
+      prisma.conversation.update({
+        where: { id: conversationId },
+        data: { lastMessageAt: new Date() },
+      }),
+    ]);
 
-    await prisma.conversation.update({
-      where: { id: conversationId },
-      data: { lastMessageAt: new Date() },
-    });
-
-    // Emit via global Socket.io if available
+    // Socket emit (non-blocking)
     try {
       const io = (global as any).io;
       if (io) {
-        io.to(`conversation:${conversationId}`).emit("message:new", {
-          ...message,
-          conversationId,
-        });
-        // notify the other user for conversation list update
-        const otherId =
-          conv.user1Id === user.id ? conv.user2Id : conv.user1Id;
+        const payload = { ...message, createdAt: message.createdAt.toISOString() };
+        io.to(`conversation:${conversationId}`).emit("message:new", payload);
+        const otherId = conv.user1Id === user.id ? conv.user2Id : conv.user1Id;
         io.to(`user:${otherId}`).emit("conversation:update", {
           conversationId,
-          lastMessage: message,
+          lastMessage: payload,
         });
       }
-    } catch (e) {
-      console.error("Socket emit error:", e);
+    } catch {
+      /* ignore */
     }
 
-    return NextResponse.json({ message, conversationId }, { status: 201 });
+    return NextResponse.json(
+      {
+        message: {
+          ...message,
+          createdAt: message.createdAt.toISOString(),
+        },
+        conversationId,
+      },
+      { status: 201 }
+    );
   } catch (err) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: err.errors[0].message }, { status: 400 });

@@ -1,37 +1,32 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { formatRelativeTime } from "@/lib/utils";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { connectSocket } from "@/lib/socket";
+import { formatRelativeTime } from "@/lib/utils";
 
-interface Msg {
+export interface ChatMsg {
   id: string;
   content?: string | null;
   imageUrl?: string | null;
-  stickerId?: string | null;
-  sticker?: { id: string; imageUrl: string; emoji?: string | null } | null;
   senderId: string;
   createdAt: string;
-  sender?: {
-    id: string;
-    username: string;
-    displayName: string;
-    avatarUrl?: string | null;
-  };
+  pending?: boolean;
 }
 
 interface Props {
   conversationId: string;
   currentUserId: string;
-  initialMessages: Msg[];
+  initialMessages: ChatMsg[];
+  otherName: string;
 }
 
 export default function RealtimeMessages({
   conversationId,
   currentUserId,
   initialMessages,
+  otherName,
 }: Props) {
-  const [messages, setMessages] = useState<Msg[]>(initialMessages);
+  const [messages, setMessages] = useState<ChatMsg[]>(initialMessages);
   const [typing, setTyping] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -41,33 +36,44 @@ export default function RealtimeMessages({
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, typing]);
+  }, [messages.length, typing]);
+
+  const addMessage = useCallback((msg: ChatMsg) => {
+    setMessages((prev) => {
+      if (prev.some((m) => m.id === msg.id)) return prev;
+      // replace optimistic pending with same content/image
+      const filtered = prev.filter((m) => {
+        if (!m.pending) return true;
+        if (msg.imageUrl && m.imageUrl === msg.imageUrl) return false;
+        if (msg.content && m.content === msg.content) return false;
+        return true;
+      });
+      return [...filtered, { ...msg, pending: false }];
+    });
+  }, []);
 
   useEffect(() => {
     const s = connectSocket(currentUserId);
     s.emit("join:conversation", conversationId);
 
-    const onNew = (msg: Msg & { conversationId?: string }) => {
+    const onNew = (msg: any) => {
       if (msg.conversationId && msg.conversationId !== conversationId) return;
-      setMessages((prev) => {
-        if (prev.some((m) => m.id === msg.id)) return prev;
-        return [...prev, msg];
+      addMessage({
+        id: msg.id,
+        content: msg.content,
+        imageUrl: msg.imageUrl,
+        senderId: msg.senderId,
+        createdAt: msg.createdAt || new Date().toISOString(),
       });
     };
 
     const onTypingStart = (data: { conversationId: string; userId: string }) => {
-      if (
-        data.conversationId === conversationId &&
-        data.userId !== currentUserId
-      ) {
+      if (data.conversationId === conversationId && data.userId !== currentUserId) {
         setTyping(true);
       }
     };
     const onTypingStop = (data: { conversationId: string; userId: string }) => {
-      if (
-        data.conversationId === conversationId &&
-        data.userId !== currentUserId
-      ) {
+      if (data.conversationId === conversationId && data.userId !== currentUserId) {
         setTyping(false);
       }
     };
@@ -76,60 +82,73 @@ export default function RealtimeMessages({
     s.on("typing:start", onTypingStart);
     s.on("typing:stop", onTypingStop);
 
+    const onLocal = (e: Event) => {
+      const detail = (e as CustomEvent).detail as ChatMsg;
+      if (detail) addMessage(detail);
+    };
+    window.addEventListener("chat:local-message", onLocal);
+
     return () => {
       s.emit("leave:conversation", conversationId);
       s.off("message:new", onNew);
       s.off("typing:start", onTypingStart);
       s.off("typing:stop", onTypingStop);
+      window.removeEventListener("chat:local-message", onLocal);
     };
-  }, [conversationId, currentUserId]);
+  }, [conversationId, currentUserId, addMessage]);
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+    <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
       {messages.length === 0 ? (
         <div className="h-full flex items-center justify-center text-[var(--muted)] text-sm">
-          Начните переписку
+          Начните переписку с {otherName}
         </div>
       ) : (
         messages.map((msg) => {
           const isMine = msg.senderId === currentUserId;
+          // sticker = image without text (or image alone)
+          const isStickerOnly = msg.imageUrl && !msg.content;
+
           return (
             <div
               key={msg.id}
               className={`flex ${isMine ? "justify-end" : "justify-start"}`}
             >
               <div
-                className={`max-w-[75%] rounded-2xl px-4 py-2.5 ${
-                  isMine
-                    ? "bg-[var(--primary)] text-white rounded-br-md"
-                    : "bg-[var(--card-hover)] text-[var(--foreground)] rounded-bl-md"
-                }`}
+                className={`max-w-[70%] ${
+                  isStickerOnly
+                    ? "px-0.5 py-0.5"
+                    : isMine
+                    ? "bg-[var(--primary)] text-white rounded-2xl rounded-br-sm px-3 py-1.5"
+                    : "bg-[var(--card-hover)] text-[var(--foreground)] rounded-2xl rounded-bl-sm px-3 py-1.5"
+                } ${msg.pending ? "opacity-50" : ""}`}
               >
-                {msg.sticker && (
-                  <img
-                    src={msg.sticker.imageUrl}
-                    alt={msg.sticker.emoji || "sticker"}
-                    className="w-28 h-28 object-contain"
-                  />
-                )}
                 {msg.imageUrl && (
                   <img
                     src={msg.imageUrl}
                     alt=""
-                    className="max-w-full rounded-lg max-h-60 object-cover mb-1"
+                    className={
+                      isStickerOnly
+                        ? "w-28 h-28 object-contain"
+                        : "max-w-full rounded-lg max-h-52 object-cover mb-1"
+                    }
+                    loading="lazy"
                   />
                 )}
                 {msg.content && (
-                  <p className="text-[15px] whitespace-pre-wrap break-words">
+                  <p className="text-[14px] leading-snug whitespace-pre-wrap break-words">
                     {msg.content}
                   </p>
                 )}
                 <p
-                  className={`text-[11px] mt-1 ${
-                    isMine ? "text-white/60" : "text-[var(--muted-dark)]"
+                  className={`text-[10px] mt-0.5 ${
+                    isMine && !isStickerOnly
+                      ? "text-white/50 text-right"
+                      : "text-[var(--muted-dark)]"
                   }`}
                 >
-                  {formatRelativeTime(new Date(msg.createdAt))}
+                  {formatRelativeTime(msg.createdAt)}
+                  {msg.pending ? " · …" : ""}
                 </p>
               </div>
             </div>
@@ -137,7 +156,7 @@ export default function RealtimeMessages({
         })
       )}
       {typing && (
-        <div className="text-xs text-[var(--muted)] px-2">печатает...</div>
+        <div className="text-xs text-[var(--muted)] px-1">печатает...</div>
       )}
       <div ref={bottomRef} />
     </div>

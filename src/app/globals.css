@@ -60,3 +60,13 @@ body {
 ::selection {
   background: rgba(38, 136, 235, 0.35);
 }
+
+
+/* Telegram-like messenger helpers */
+@keyframes bounce {
+  0%, 80%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-4px); }
+}
+.animate-bounce {
+  animation: bounce 1.2s infinite ease-in-out;
+}

@@ -2,7 +2,6 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { formatRelativeTime } from "@/lib/utils";
 import ChatInput from "@/components/ChatInput";
 import { ArrowLeft } from "lucide-react";
 import RealtimeMessages from "@/components/RealtimeMessages";
@@ -39,7 +38,7 @@ export default async function ConversationPage({ params }: Props) {
       },
       messages: {
         orderBy: { createdAt: "asc" },
-        take: 100,
+        take: 150,
         include: {
           sender: {
             select: {
@@ -49,7 +48,6 @@ export default async function ConversationPage({ params }: Props) {
               avatarUrl: true,
             },
           },
-          sticker: true,
         },
       },
     },
@@ -63,26 +61,23 @@ export default async function ConversationPage({ params }: Props) {
   const other =
     conversation.user1Id === user.id ? conversation.user2 : conversation.user1;
 
-  await prisma.message.updateMany({
-    where: {
-      conversationId: id,
-      senderId: { not: user.id },
-      isRead: false,
-    },
-    data: { isRead: true },
-  });
+  prisma.message
+    .updateMany({
+      where: {
+        conversationId: id,
+        senderId: { not: user.id },
+        isRead: false,
+      },
+      data: { isRead: true },
+    })
+    .catch(() => {});
 
   const initialMessages = conversation.messages.map((m) => ({
     id: m.id,
     content: m.content,
     imageUrl: m.imageUrl,
-    stickerId: m.stickerId,
-    sticker: m.sticker
-      ? { id: m.sticker.id, imageUrl: m.sticker.imageUrl, emoji: m.sticker.emoji }
-      : null,
     senderId: m.senderId,
     createdAt: m.createdAt.toISOString(),
-    sender: m.sender,
   }));
 
   return (
@@ -115,7 +110,7 @@ export default async function ConversationPage({ params }: Props) {
           <div className="min-w-0">
             <Link
               href={`/profile/${other.username}`}
-              className="font-semibold hover:underline truncate block"
+              className="font-semibold hover:underline truncate block text-[15px]"
             >
               {other.displayName}
             </Link>
@@ -129,6 +124,7 @@ export default async function ConversationPage({ params }: Props) {
           conversationId={id}
           currentUserId={user.id}
           initialMessages={initialMessages}
+          otherName={other.displayName}
         />
 
         <ChatInput conversationId={id} userId={user.id} />

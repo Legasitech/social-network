@@ -10,6 +10,13 @@ export function getSocket(): Socket {
       path: "/api/socket",
       autoConnect: false,
       transports: ["websocket", "polling"],
+      // Don't spam reconnect on Vercel / hosts without socket server
+      reconnectionAttempts: 3,
+      reconnectionDelay: 2000,
+    });
+
+    socket.on("connect_error", () => {
+      // Silent on platforms without custom server (e.g. Vercel)
     });
   }
   return socket;
@@ -17,18 +24,24 @@ export function getSocket(): Socket {
 
 export function connectSocket(userId: string) {
   const s = getSocket();
-  if (!s.connected) {
-    s.connect();
+  try {
+    if (!s.connected) {
+      s.connect();
+    }
     s.emit("auth", userId);
-  } else {
-    s.emit("auth", userId);
+  } catch {
+    // ignore
   }
   return s;
 }
 
 export function disconnectSocket() {
   if (socket) {
-    socket.disconnect();
+    try {
+      socket.disconnect();
+    } catch {
+      // ignore
+    }
     socket = null;
   }
 }

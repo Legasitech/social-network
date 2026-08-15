@@ -1,34 +1,19 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { Send, ImagePlus, Sticker, X } from "lucide-react";
+import { Send, ImagePlus, Smile, X } from "lucide-react";
 import { connectSocket, getSocket } from "@/lib/socket";
-
-interface StickerItem {
-  id: string;
-  imageUrl: string;
-  emoji?: string | null;
-}
-
-interface Pack {
-  id: string;
-  name: string;
-  stickers: StickerItem[];
-}
+import { STICKER_PACKS } from "@/lib/stickers";
 
 interface Props {
   conversationId: string;
   userId: string;
-  onNewMessage?: (msg: any) => void;
 }
 
-export default function ChatInput({ conversationId, userId, onNewMessage }: Props) {
-  const router = useRouter();
+export default function ChatInput({ conversationId, userId }: Props) {
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(false);
   const [showStickers, setShowStickers] = useState(false);
-  const [packs, setPacks] = useState<Pack[]>([]);
   const [activePack, setActivePack] = useState(0);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -39,38 +24,22 @@ export default function ChatInput({ conversationId, userId, onNewMessage }: Prop
   useEffect(() => {
     const s = connectSocket(userId);
     s.emit("join:conversation", conversationId);
-
-    const onMessage = (msg: any) => {
-      if (msg.conversationId === conversationId) {
-        onNewMessage?.(msg);
-        router.refresh();
-      }
-    };
-    s.on("message:new", onMessage);
-
-    return () => {
-      s.emit("leave:conversation", conversationId);
-      s.off("message:new", onMessage);
-    };
-  }, [conversationId, userId, onNewMessage, router]);
-
-  useEffect(() => {
-    if (showStickers && packs.length === 0) {
-      fetch("/api/stickers")
-        .then((r) => r.json())
-        .then((d) => setPacks(d.packs || []))
-        .catch(() => {});
-    }
-  }, [showStickers, packs.length]);
+    textareaRef.current?.focus();
+  }, [conversationId, userId]);
 
   const emitTyping = useCallback(
     (start: boolean) => {
-      const s = getSocket();
-      if (!s.connected) return;
-      s.emit(start ? "typing:start" : "typing:stop", {
-        conversationId,
-        userId,
-      });
+      try {
+        const s = getSocket();
+        if (s.connected) {
+          s.emit(start ? "typing:start" : "typing:stop", {
+            conversationId,
+            userId,
+          });
+        }
+      } catch {
+        /* ignore */
+      }
     },
     [conversationId, userId]
   );
@@ -79,7 +48,7 @@ export default function ChatInput({ conversationId, userId, onNewMessage }: Prop
     setContent(e.target.value);
     emitTyping(true);
     if (typingTimeout.current) clearTimeout(typingTimeout.current);
-    typingTimeout.current = setTimeout(() => emitTyping(false), 1500);
+    typingTimeout.current = setTimeout(() => emitTyping(false), 1000);
   }
 
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -96,39 +65,62 @@ export default function ChatInput({ conversationId, userId, onNewMessage }: Prop
     if (fileRef.current) fileRef.current.value = "";
   }
 
-  async function sendMessage(payload: {
+  function pushLocal(msg: {
+    id: string;
+    content?: string | null;
+    imageUrl?: string | null;
+    senderId: string;
+    createdAt: string;
+    pending?: boolean;
+  }) {
+    window.dispatchEvent(
+      new CustomEvent("chat:local-message", { detail: msg })
+    );
+  }
+
+  async function sendPayload(payload: {
     content?: string;
     imageUrl?: string;
-    stickerId?: string;
   }) {
+    const tempId = "tmp-" + Date.now();
+    const now = new Date().toISOString();
+
+    // Instant UI
+    pushLocal({
+      id: tempId,
+      content: payload.content || null,
+      imageUrl: payload.imageUrl || null,
+      senderId: userId,
+      createdAt: now,
+      pending: true,
+    });
+
+    // Fire and forget style - don't block UI
     setLoading(true);
-    try {
-      const res = await fetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId, ...payload }),
-      });
-      if (res.ok) {
+    fetch("/api/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversationId, ...payload }),
+    })
+      .then(async (res) => {
+        if (!res.ok) return;
         const data = await res.json();
-        // emit via socket for realtime
-        const s = getSocket();
-        if (s.connected && data.message) {
-          s.emit("message:send", {
-            ...data.message,
-            conversationId,
+        if (data.message) {
+          pushLocal({
+            id: data.message.id,
+            content: data.message.content,
+            imageUrl: data.message.imageUrl,
+            senderId: data.message.senderId,
+            createdAt: data.message.createdAt || now,
+            pending: false,
           });
-          // also broadcast from client side for peers
-          s.to?.(`conversation:${conversationId}`);
         }
-        router.refresh();
-        onNewMessage?.(data.message);
-      }
-    } catch {
-      /* ignore */
-    } finally {
-      setLoading(false);
-      textareaRef.current?.focus();
-    }
+      })
+      .catch(() => {})
+      .finally(() => {
+        setLoading(false);
+        textareaRef.current?.focus();
+      });
   }
 
   async function handleSubmit(e?: React.FormEvent) {
@@ -144,22 +136,22 @@ export default function ChatInput({ conversationId, userId, onNewMessage }: Prop
       const fd = new FormData();
       fd.append("file", imageFile);
       fd.append("type", "message");
-      const up = await fetch("/api/upload", { method: "POST", body: fd });
-      const upData = await up.json();
-      if (!up.ok) {
-        setContent(text);
-        return;
+      try {
+        const up = await fetch("/api/upload", { method: "POST", body: fd });
+        const upData = await up.json();
+        if (up.ok) imageUrl = upData.url;
+      } catch {
+        /* ignore */
       }
-      imageUrl = upData.url;
       clearImage();
     }
 
-    await sendMessage({ content: text || undefined, imageUrl });
+    sendPayload({ content: text || undefined, imageUrl });
   }
 
-  async function sendSticker(stickerId: string) {
+  function sendSticker(imageUrl: string) {
     setShowStickers(false);
-    await sendMessage({ stickerId });
+    sendPayload({ imageUrl });
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -172,30 +164,38 @@ export default function ChatInput({ conversationId, userId, onNewMessage }: Prop
   return (
     <div className="shrink-0 border-t border-[var(--border)]">
       {showStickers && (
-        <div className="border-b border-[var(--border)] bg-[var(--card)] max-h-56 overflow-hidden flex flex-col">
+        <div className="border-b border-[var(--border)] max-h-52 flex flex-col bg-[var(--card)]">
           <div className="flex gap-1 px-2 pt-2 overflow-x-auto">
-            {packs.map((p, i) => (
+            {STICKER_PACKS.map((p, i) => (
               <button
                 key={p.id}
+                type="button"
                 onClick={() => setActivePack(i)}
-                className={`px-3 py-1 text-xs rounded-lg whitespace-nowrap ${
+                className={`px-3 py-1 text-xs rounded-lg whitespace-nowrap transition ${
                   activePack === i
                     ? "bg-[var(--primary)] text-white"
-                    : "bg-[var(--background)] text-[var(--muted)]"
+                    : "bg-[var(--background)] text-[var(--muted)] hover:text-[var(--foreground)]"
                 }`}
               >
                 {p.name}
               </button>
             ))}
           </div>
-          <div className="flex-1 overflow-y-auto p-2 grid grid-cols-6 gap-1">
-            {(packs[activePack]?.stickers || []).map((s) => (
+          <div className="flex-1 overflow-y-auto p-2 grid grid-cols-5 sm:grid-cols-6 gap-1">
+            {STICKER_PACKS[activePack]?.stickers.map((s) => (
               <button
                 key={s.id}
-                onClick={() => sendSticker(s.id)}
-                className="aspect-square p-1 hover:bg-[var(--card-hover)] rounded-lg transition"
+                type="button"
+                onClick={() => sendSticker(s.imageUrl)}
+                className="aspect-square p-1 hover:bg-[var(--card-hover)] rounded-lg transition flex items-center justify-center"
+                title={s.name}
               >
-                <img src={s.imageUrl} alt={s.emoji || ""} className="w-full h-full object-contain" />
+                <img
+                  src={s.imageUrl}
+                  alt={s.name}
+                  className="w-full h-full object-contain"
+                  loading="lazy"
+                />
               </button>
             ))}
           </div>
@@ -205,22 +205,19 @@ export default function ChatInput({ conversationId, userId, onNewMessage }: Prop
       {preview && (
         <div className="px-3 pt-2">
           <div className="relative inline-block">
-            <img src={preview} alt="" className="h-20 rounded-lg object-cover" />
+            <img src={preview} alt="" className="h-16 rounded-lg object-cover" />
             <button
               type="button"
               onClick={clearImage}
-              className="absolute -top-1 -right-1 p-0.5 bg-black/70 rounded-full text-white"
+              className="absolute -top-1.5 -right-1.5 p-0.5 bg-[var(--card-hover)] rounded-full text-[var(--muted)]"
             >
-              <X size={12} />
+              <X size={14} />
             </button>
           </div>
         </div>
       )}
 
-      <form
-        onSubmit={handleSubmit}
-        className="p-3 flex items-end gap-2"
-      >
+      <form onSubmit={handleSubmit} className="p-3 flex items-end gap-2">
         <input
           ref={fileRef}
           type="file"
@@ -239,10 +236,12 @@ export default function ChatInput({ conversationId, userId, onNewMessage }: Prop
           type="button"
           onClick={() => setShowStickers(!showStickers)}
           className={`p-2 transition shrink-0 ${
-            showStickers ? "text-[var(--primary)]" : "text-[var(--muted)] hover:text-[var(--primary)]"
+            showStickers
+              ? "text-[var(--primary)]"
+              : "text-[var(--muted)] hover:text-[var(--primary)]"
           }`}
         >
-          <Sticker size={20} />
+          <Smile size={20} />
         </button>
         <textarea
           ref={textareaRef}
@@ -251,7 +250,7 @@ export default function ChatInput({ conversationId, userId, onNewMessage }: Prop
           onKeyDown={handleKeyDown}
           placeholder="Написать сообщение..."
           rows={1}
-          className="flex-1 bg-[var(--background)] border border-[var(--border)] rounded-xl px-4 py-2.5 text-[15px] text-[var(--foreground)] placeholder:text-[var(--muted-dark)] focus:outline-none focus:border-[var(--primary)] resize-none max-h-32 transition"
+          className="flex-1 bg-[var(--background)] border border-[var(--border)] rounded-xl px-4 py-2 text-[14px] text-[var(--foreground)] placeholder:text-[var(--muted-dark)] focus:outline-none focus:border-[var(--primary)] resize-none max-h-28 transition"
         />
         <button
           type="submit"
