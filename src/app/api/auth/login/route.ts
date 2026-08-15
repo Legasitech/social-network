@@ -48,13 +48,14 @@ export async function POST(req: NextRequest) {
         avatarUrl: user.avatarUrl,
       },
     });
-  } catch (err) {
-  console.error("Auth error:", err);
-  return NextResponse.json(
-    {
-      error: "Ошибка сервера",
-      details: err instanceof Error ? err.message : String(err),
-    },
-    { status: 500 }
-  );
+    } catch (err) {
+    console.error("Register error:", err);
+    return NextResponse.json(
+      {
+        error: "Ошибка сервера",
+        details: err instanceof Error ? err.message : String(err),
+      },
+      { status: 500 }
+    );
+  }
 }
