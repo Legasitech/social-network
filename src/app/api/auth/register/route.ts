@@ -4,7 +4,6 @@ import { prisma } from "@/lib/prisma";
 import { hashPassword, createSession } from "@/lib/auth";
 
 const registerSchema = z.object({
-  email: z.string().email("Некорректный email"),
   username: z
     .string()
     .min(3, "Минимум 3 символа")
@@ -22,14 +21,11 @@ export async function POST(req: NextRequest) {
     // Check uniqueness
     const existing = await prisma.user.findFirst({
       where: {
-        OR: [{ email: data.email.toLowerCase() }, { username: data.username.toLowerCase() }],
+        username: data.username.toLowerCase(),
       },
     });
 
     if (existing) {
-      if (existing.email === data.email.toLowerCase()) {
-        return NextResponse.json({ error: "Email уже занят" }, { status: 400 });
-      }
       return NextResponse.json({ error: "Юзернейм уже занят" }, { status: 400 });
     }
 
@@ -37,14 +33,12 @@ export async function POST(req: NextRequest) {
 
     const user = await prisma.user.create({
       data: {
-        email: data.email.toLowerCase(),
         username: data.username.toLowerCase(),
         passwordHash,
         displayName: data.displayName,
       },
       select: {
         id: true,
-        email: true,
         username: true,
         displayName: true,
         avatarUrl: true,
@@ -54,8 +48,11 @@ export async function POST(req: NextRequest) {
     await createSession(user.id);
 
     return NextResponse.json({ user }, { status: 201 });
-    } catch (err) {
+  } catch (err) {
     console.error("Register error:", err);
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: err.errors[0].message }, { status: 400 });
+    }
     return NextResponse.json(
       {
         error: "Ошибка сервера",

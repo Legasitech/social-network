@@ -5,6 +5,7 @@ import Link from "next/link";
 import { formatRelativeTime } from "@/lib/utils";
 import ChatInput from "@/components/ChatInput";
 import { ArrowLeft } from "lucide-react";
+import RealtimeMessages from "@/components/RealtimeMessages";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -48,6 +49,7 @@ export default async function ConversationPage({ params }: Props) {
               avatarUrl: true,
             },
           },
+          sticker: true,
         },
       },
     },
@@ -61,7 +63,6 @@ export default async function ConversationPage({ params }: Props) {
   const other =
     conversation.user1Id === user.id ? conversation.user2 : conversation.user1;
 
-  // Mark messages as read
   await prisma.message.updateMany({
     where: {
       conversationId: id,
@@ -70,6 +71,19 @@ export default async function ConversationPage({ params }: Props) {
     },
     data: { isRead: true },
   });
+
+  const initialMessages = conversation.messages.map((m) => ({
+    id: m.id,
+    content: m.content,
+    imageUrl: m.imageUrl,
+    stickerId: m.stickerId,
+    sticker: m.sticker
+      ? { id: m.sticker.id, imageUrl: m.sticker.imageUrl, emoji: m.sticker.emoji }
+      : null,
+    senderId: m.senderId,
+    createdAt: m.createdAt.toISOString(),
+    sender: m.sender,
+  }));
 
   return (
     <div className="max-w-[720px] mx-auto h-[calc(100vh-7rem)] flex flex-col">
@@ -111,46 +125,13 @@ export default async function ConversationPage({ params }: Props) {
           </div>
         </div>
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {conversation.messages.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-[var(--muted)] text-sm">
-              Начните переписку
-            </div>
-          ) : (
-            conversation.messages.map((msg) => {
-              const isMine = msg.senderId === user.id;
-              return (
-                <div
-                  key={msg.id}
-                  className={`flex ${isMine ? "justify-end" : "justify-start"}`}
-                >
-                  <div
-                    className={`max-w-[75%] rounded-2xl px-4 py-2.5 ${
-                      isMine
-                        ? "bg-[var(--primary)] text-white rounded-br-md"
-                        : "bg-[var(--card-hover)] text-[var(--foreground)] rounded-bl-md"
-                    }`}
-                  >
-                    <p className="text-[15px] whitespace-pre-wrap break-words">
-                      {msg.content}
-                    </p>
-                    <p
-                      className={`text-[11px] mt-1 ${
-                        isMine ? "text-white/60" : "text-[var(--muted-dark)]"
-                      }`}
-                    >
-                      {formatRelativeTime(msg.createdAt)}
-                    </p>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
+        <RealtimeMessages
+          conversationId={id}
+          currentUserId={user.id}
+          initialMessages={initialMessages}
+        />
 
-        {/* Input */}
-        <ChatInput conversationId={id} />
+        <ChatInput conversationId={id} userId={user.id} />
       </div>
     </div>
   );

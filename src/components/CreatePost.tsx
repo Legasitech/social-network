@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { ImagePlus, X } from "lucide-react";
 
 interface Props {
   displayName: string;
@@ -11,8 +12,30 @@ interface Props {
 export default function CreatePost({ displayName, avatarUrl }: Props) {
   const router = useRouter();
   const [content, setContent] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) {
+      setError("Максимум 8 МБ");
+      return;
+    }
+    setImageFile(file);
+    setPreview(URL.createObjectURL(file));
+    setError("");
+  }
+
+  function clearImage() {
+    setImageFile(null);
+    if (preview) URL.revokeObjectURL(preview);
+    setPreview(null);
+    if (fileRef.current) fileRef.current.value = "";
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -22,10 +45,29 @@ export default function CreatePost({ displayName, avatarUrl }: Props) {
     setError("");
 
     try {
+      let imageUrl: string | null = null;
+
+      if (imageFile) {
+        const fd = new FormData();
+        fd.append("file", imageFile);
+        fd.append("type", "post");
+        const up = await fetch("/api/upload", { method: "POST", body: fd });
+        const upData = await up.json();
+        if (!up.ok) {
+          setError(upData.error || "Ошибка загрузки фото");
+          setLoading(false);
+          return;
+        }
+        imageUrl = upData.url;
+      }
+
       const res = await fetch("/api/posts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: content.trim() }),
+        body: JSON.stringify({
+          content: content.trim(),
+          imageUrl,
+        }),
       });
 
       const data = await res.json();
@@ -35,6 +77,7 @@ export default function CreatePost({ displayName, avatarUrl }: Props) {
       }
 
       setContent("");
+      clearImage();
       router.refresh();
     } catch {
       setError("Ошибка сети");
@@ -66,10 +109,46 @@ export default function CreatePost({ displayName, avatarUrl }: Props) {
               rows={3}
               className="w-full bg-[var(--background)] border border-[var(--border)] rounded-xl px-4 py-3 text-[15px] text-[var(--foreground)] placeholder:text-[var(--muted-dark)] focus:outline-none focus:border-[var(--primary)] resize-none transition"
             />
+
+            {preview && (
+              <div className="relative mt-2 inline-block">
+                <img
+                  src={preview}
+                  alt=""
+                  className="max-h-48 rounded-lg object-cover"
+                />
+                <button
+                  type="button"
+                  onClick={clearImage}
+                  className="absolute top-1 right-1 p-1 bg-black/60 rounded-full text-white hover:bg-black/80"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
             {error && (
               <p className="text-sm text-red-400 mt-1.5">{error}</p>
             )}
-            <div className="flex justify-end mt-2">
+
+            <div className="flex justify-between items-center mt-2">
+              <div>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  onChange={onFileChange}
+                  className="hidden"
+                  id="post-image"
+                />
+                <label
+                  htmlFor="post-image"
+                  className="inline-flex items-center gap-1.5 text-sm text-[var(--muted)] hover:text-[var(--primary)] cursor-pointer transition"
+                >
+                  <ImagePlus size={18} />
+                  Фото
+                </label>
+              </div>
               <button
                 type="submit"
                 disabled={!content.trim() || loading}

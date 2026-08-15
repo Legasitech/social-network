@@ -7,7 +7,7 @@ import Link from "next/link";
 export default function LoginPage() {
   const router = useRouter();
   const [form, setForm] = useState({
-    emailOrUsername: "",
+    username: "",
     password: "",
   });
   const [error, setError] = useState("");
@@ -51,16 +51,23 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-[var(--muted)] mb-1.5">
-              Email или юзернейм
+              Юзернейм
             </label>
-            <input
-              type="text"
-              required
-              value={form.emailOrUsername}
-              onChange={(e) => setForm({ ...form, emailOrUsername: e.target.value })}
-              className="w-full px-4 py-2.5 bg-[var(--background)] border border-[var(--border)] rounded-xl text-[var(--foreground)] placeholder:text-[var(--muted-dark)] focus:outline-none focus:border-[var(--primary)] transition"
-              placeholder="email или @username"
-            />
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted-dark)]">
+                @
+              </span>
+              <input
+                type="text"
+                required
+                value={form.username}
+                onChange={(e) =>
+                  setForm({ ...form, username: e.target.value.toLowerCase() })
+                }
+                className="w-full pl-8 pr-4 py-2.5 bg-[var(--background)] border border-[var(--border)] rounded-xl text-[var(--foreground)] placeholder:text-[var(--muted-dark)] focus:outline-none focus:border-[var(--primary)] transition"
+                placeholder="username"
+              />
+            </div>
           </div>
 
           <div>
@@ -73,7 +80,7 @@ export default function LoginPage() {
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
               className="w-full px-4 py-2.5 bg-[var(--background)] border border-[var(--border)] rounded-xl text-[var(--foreground)] placeholder:text-[var(--muted-dark)] focus:outline-none focus:border-[var(--primary)] transition"
-              placeholder="••••••••"
+              placeholder="Пароль"
             />
           </div>
 

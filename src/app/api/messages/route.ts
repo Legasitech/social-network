@@ -6,7 +6,9 @@ import { prisma } from "@/lib/prisma";
 const sendSchema = z.object({
   conversationId: z.string().optional(),
   recipientId: z.string().optional(),
-  content: z.string().min(1).max(4000),
+  content: z.string().max(4000).optional().nullable(),
+  imageUrl: z.string().optional().nullable(),
+  stickerId: z.string().optional().nullable(),
 });
 
 export async function POST(req: NextRequest) {
@@ -19,24 +21,24 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const data = sendSchema.parse(body);
 
+    if (!data.content?.trim() && !data.imageUrl && !data.stickerId) {
+      return NextResponse.json({ error: "Пустое сообщение" }, { status: 400 });
+    }
+
     let conversationId = data.conversationId;
 
-    // Create conversation if needed
     if (!conversationId && data.recipientId) {
       if (data.recipientId === user.id) {
         return NextResponse.json({ error: "Нельзя писать себе" }, { status: 400 });
       }
 
-      // Normalize order so unique constraint works
       const [user1Id, user2Id] =
         user.id < data.recipientId
           ? [user.id, data.recipientId]
           : [data.recipientId, user.id];
 
       let conv = await prisma.conversation.findUnique({
-        where: {
-          user1Id_user2Id: { user1Id, user2Id },
-        },
+        where: { user1Id_user2Id: { user1Id, user2Id } },
       });
 
       if (!conv) {
@@ -49,10 +51,12 @@ export async function POST(req: NextRequest) {
     }
 
     if (!conversationId) {
-      return NextResponse.json({ error: "Укажи conversationId или recipientId" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Укажи conversationId или recipientId" },
+        { status: 400 }
+      );
     }
 
-    // Verify access
     const conv = await prisma.conversation.findUnique({
       where: { id: conversationId },
     });
@@ -65,7 +69,9 @@ export async function POST(req: NextRequest) {
       data: {
         conversationId,
         senderId: user.id,
-        content: data.content.trim(),
+        content: data.content?.trim() || null,
+        imageUrl: data.imageUrl || null,
+        stickerId: data.stickerId || null,
       },
       include: {
         sender: {
@@ -76,6 +82,7 @@ export async function POST(req: NextRequest) {
             avatarUrl: true,
           },
         },
+        sticker: true,
       },
     });
 
@@ -83,6 +90,26 @@ export async function POST(req: NextRequest) {
       where: { id: conversationId },
       data: { lastMessageAt: new Date() },
     });
+
+    // Emit via global Socket.io if available
+    try {
+      const io = (global as any).io;
+      if (io) {
+        io.to(`conversation:${conversationId}`).emit("message:new", {
+          ...message,
+          conversationId,
+        });
+        // notify the other user for conversation list update
+        const otherId =
+          conv.user1Id === user.id ? conv.user2Id : conv.user1Id;
+        io.to(`user:${otherId}`).emit("conversation:update", {
+          conversationId,
+          lastMessage: message,
+        });
+      }
+    } catch (e) {
+      console.error("Socket emit error:", e);
+    }
 
     return NextResponse.json({ message, conversationId }, { status: 201 });
   } catch (err) {

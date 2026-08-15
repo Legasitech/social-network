@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 
 const createPostSchema = z.object({
   content: z.string().min(1, "Напиши что-нибудь").max(5000),
-  imageUrl: z.string().url().optional().nullable(),
+  imageUrl: z.string().max(500).optional().nullable(),
 });
 
 export async function POST(req: NextRequest) {
@@ -66,8 +66,20 @@ export async function GET(req: NextRequest) {
             avatarUrl: true,
           },
         },
+        originalPost: {
+          include: {
+            author: {
+              select: {
+                id: true,
+                username: true,
+                displayName: true,
+                avatarUrl: true,
+              },
+            },
+          },
+        },
         likes: { select: { userId: true } },
-        _count: { select: { likes: true, comments: true } },
+        _count: { select: { likes: true, comments: true, repostRecords: true } },
       },
     });
 

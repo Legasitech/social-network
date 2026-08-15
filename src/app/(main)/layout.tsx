@@ -27,6 +27,7 @@ export default async function MainLayout({
     { href: "/feed", label: "Лента", icon: Newspaper },
     { href: "/messages", label: "Сообщения", icon: MessageCircle },
     { href: "/friends", label: "Друзья", icon: Users },
+    { href: "/groups", label: "Группы", icon: Users },
     { href: `/profile/${user.username}`, label: "Профиль", icon: User },
   ];
 
@@ -85,10 +86,10 @@ export default async function MainLayout({
 
         {/* Bottom actions */}
         <div className="p-2 border-t border-[var(--border)] space-y-0.5">
-          <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[var(--muted)] hover:bg-[var(--card-hover)] hover:text-[var(--foreground)] transition">
+          <Link href="/settings" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[var(--muted)] hover:bg-[var(--card-hover)] hover:text-[var(--foreground)] transition">
             <Settings size={20} />
             <span className="text-[15px]">Настройки</span>
-          </button>
+          </Link>
           <form action="/api/auth/logout" method="POST">
             <button
               type="submit"

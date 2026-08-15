@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { verifyPassword, createSession } from "@/lib/auth";
 
 const loginSchema = z.object({
-  emailOrUsername: z.string().min(1),
+  username: z.string().min(1),
   password: z.string().min(1),
 });
 
@@ -15,10 +15,7 @@ export async function POST(req: NextRequest) {
 
     const user = await prisma.user.findFirst({
       where: {
-        OR: [
-          { email: data.emailOrUsername.toLowerCase() },
-          { username: data.emailOrUsername.toLowerCase() },
-        ],
+        username: data.username.toLowerCase(),
       },
     });
 
@@ -42,14 +39,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       user: {
         id: user.id,
-        email: user.email,
         username: user.username,
         displayName: user.displayName,
         avatarUrl: user.avatarUrl,
       },
     });
-    } catch (err) {
-    console.error("Register error:", err);
+  } catch (err) {
+    console.error("Login error:", err);
     return NextResponse.json(
       {
         error: "Ошибка сервера",

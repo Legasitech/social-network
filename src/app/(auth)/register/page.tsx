@@ -7,7 +7,6 @@ import Link from "next/link";
 export default function RegisterPage() {
   const router = useRouter();
   const [form, setForm] = useState({
-    email: "",
     username: "",
     password: "",
     displayName: "",
@@ -53,7 +52,7 @@ export default function RegisterPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-[var(--muted)] mb-1.5">
-              Имя
+              Имя (ник)
             </label>
             <input
               type="text"
@@ -84,20 +83,6 @@ export default function RegisterPage() {
                 placeholder="username"
               />
             </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-[var(--muted)] mb-1.5">
-              Email
-            </label>
-            <input
-              type="email"
-              required
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-              className="w-full px-4 py-2.5 bg-[var(--background)] border border-[var(--border)] rounded-xl text-[var(--foreground)] placeholder:text-[var(--muted-dark)] focus:outline-none focus:border-[var(--primary)] transition"
-              placeholder="you@example.com"
-            />
           </div>
 
           <div>
